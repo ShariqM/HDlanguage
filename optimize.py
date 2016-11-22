@@ -21,7 +21,7 @@ binding_length = bindingData.shape[1]
 # Parameters
 learningRate = 1e-2
 trainingIters = 1000
-batchSize = 4
+batchSize = 2
 
 # Network Parameters
 nInput = nDim
@@ -32,17 +32,34 @@ displayStep = nSteps
 # Network
 bindings = tf.constant(bindingData.astype(np.float32))
 memories = tf.Variable(tf.zeros([batchSize, nMemories, nDim]))
-network  = Network(nInput, nHidden, nBindings, nMemories, bindings, binding_length, batchSize)
+network  = Network(batchSize, nInput, nHidden, nBindings, nMemories, bindings)
 hstate   = network.get_new_state(batchSize)
 
 # tf Graph input
-x = tf.placeholder("float", [batchSize, nInput])
-#y = tf.placeholder("float", [None, n_classes])
+x = tf.placeholder("float", [batchSize, nSteps, nInput])
+invBinding = tf.placeholder("float", [batchSize, nInput])
+target = tf.placeholder("float", [batchSize, nInput])
+
+# Permuting batch_size and n_steps
+x2 = tf.transpose(x, [1, 0, 2])
+# Reshaping to (n_steps*batch_size, n_input)
+x2 = tf.reshape(x2, [-1, nInput])
+# Split to get a list of 'n_steps' tensors of shape (batch_size, n_input)
+x2 = tf.split(0, nSteps, x2)
 
 # Step through
 for i in range(nSteps):
-    hstate, memories = network.step(hstate, memories, x)
+    hstate, memories = network.step(hstate, memories, x2[i])
+memoryExp = tf.slice(memories, [0, 0, 0], [-1, 1, -1]) # extract the first memory
+memory = tf.reshape(memoryExp, [batchSize, nInput])
 
+cost = tf.constant(0.0)
+for i in range(2):
+    unbound = tf.mul(invBinding, memory)
+    result = tf.einsum("kj,kj->k", unbound, target)
+    cost += tf.constant(float(nInput)) - tf.reduce_mean(result)
+
+optimizer = tf.train.GradientDescentOptimizer(0.1).minimize(cost)
 
 # Initializing the variables
 init = tf.initialize_all_variables()
@@ -54,26 +71,13 @@ with tf.Session() as sess:
     while step * batchSize < trainingIters:
         batchX, batchY = getBatch(data, batchSize)
 
-        for i in range(nSteps):
-            batchXi = batchX[:,i,:]
-            inputX = tf.constant(batchXi)
-            hstate, memories = network.step(hstate, memories, inputX, batchSize)
-
-        memory = tf.slice(memories, [0, 0, 0], [-1, 1, -1]) # extract the first memory
-        # 4x1x1024
-        memory = tf.reshape(memory, [batchSize, binding_length])
-        cost = tf.constant(0)
-        for test in range(2):
-            break #FIXME
-            unbound = tf.mul(test.inverse, hdv)
-            result = tf.einsum("kj,kj->k", unbound, test.identity)
-            cost += tf.constant(binding_length) - tf.reduce_mean(result)
-
-        optimizer = tf.train.GradientDescentOptimizer(0.1).minimize(cost)
-        sess.run(optimizer)
-
-        # Run optimization op (backprop)
-        #sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+        binvBinding = np.random.randn(batchSize, nInput)
+        btarget = np.random.randn(batchSize, nInput)
+        #a, b, c = tf.constant(batchX), tf.constant(invBinding), tf.constant(target)
+        #cost = sess.run(cost, feed_dict={x: a, invBinding: b, target: c})
+        #cost = sess.run(cost)
+        costVal = sess.run(cost, feed_dict={x: batchX, invBinding: binvBinding, target: btarget})
+        print ('cost', costVal)
 
         if False and step % displayStep == 0:
             # Calculate batch accuracy
