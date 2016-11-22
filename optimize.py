@@ -73,11 +73,17 @@ with tf.Session() as sess:
 
         binvBinding = np.random.randn(batchSize, nInput)
         btarget = np.random.randn(batchSize, nInput)
+
+        sess.run(optimizer, feed_dict={x: batchX, invBinding: binvBinding, target: btarget})
+
         #a, b, c = tf.constant(batchX), tf.constant(invBinding), tf.constant(target)
         #cost = sess.run(cost, feed_dict={x: a, invBinding: b, target: c})
         #cost = sess.run(cost)
         costVal = sess.run(cost, feed_dict={x: batchX, invBinding: binvBinding, target: btarget})
         print ('cost', costVal)
+        #memVal = sess.run(hstate, feed_dict={x: batchX})
+        #print ('mem', memVal)
+
 
         if False and step % displayStep == 0:
             # Calculate batch accuracy
@@ -91,8 +97,5 @@ with tf.Session() as sess:
     print ("Optimization Finished!")
 
     # Calculate accuracy for 128 mnist test images
-    test_len = 128
-    test_data = mnist.test.images[:test_len].reshape((-1, n_steps, n_input))
-    test_label = mnist.test.labels[:test_len]
-    print ("Testing Accuracy:", \
-        sess.run(accuracy, feed_dict={x: test_data, y: test_label}))
+    #print ("Testing Accuracy:", \
+        #sess.run(accuracy, feed_dict={x: test_data, y: test_label}))
