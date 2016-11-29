@@ -22,9 +22,9 @@ class RNN_Layer(object):
         self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
 
     def get_new_state(self, n_batch):
-        #return tf.Variable(tf.zeros(self.n_unit), trainable=False, name='h' )
+        #return tf.Variable(tf.zeros(self.n_unit), trainable=False, name='h')
         return tf.Variable(tf.random_normal([n_batch, self.n_unit]),
-                           trainable=False, name='h' )
+                           trainable=False, name='h')
     def step(self, h, x):
         """Updates returns the state updated by input x"""
         g = tf.matmul(x, self.IH)

@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import layers
 import pdb
+from helper import complexMultiply
 
 class Network(object):
     def __init__(self, batchSize, n_input, n_hidden, n_bindings, n_memories, bindings):
@@ -11,10 +12,12 @@ class Network(object):
 
         self.n_input = n_input
         self.batchSize = batchSize
-        self.bindings = bindings
+        self.bindingsReal = bindings[0]
+        self.bindingsImag = bindings[1]
         self.n_memories = n_memories
 
-    def step(self, hstate, memories, x_input):
+
+    def step(self, hstate, memories, x_input, hdInput):
         hstate = self.rnn_layer.step(hstate, x_input)
 
         reading_raw = self.read_layer.output(hstate)
@@ -25,13 +28,23 @@ class Network(object):
         writing_softmax_exp = tf.reshape(writing_softmax, [self.batchSize, self.n_memories, 1])
         writing_softmax_exp = tf.tile(writing_softmax_exp, [1, 1, self.n_input])
 
-        binding = tf.matmul(reading_softmax, self.bindings) # ki,ij
-        boundedX = tf.mul(binding, x_input)
-        boundedXexp = tf.reshape(boundedX, [self.batchSize, 1, self.n_input])
-        boundedXs = tf.tile(boundedXexp, [1, 10, 1])
+        bindingReal = tf.matmul(reading_softmax, self.bindingsReal) # ki,ij
+        bindingImag = tf.matmul(reading_softmax, self.bindingsImag) # ki,ij
 
-        memories = memories + tf.mul(boundedXs, writing_softmax_exp)
-        return hstate, memories
+        hdInputReal, hdInputImag = hdInput
+        boundedXReal, boundedXImag = complexMultiply(bindingReal, bindingImag,
+                                                     hdInputReal, hdInputImag)
+
+        boundedXRealExp = tf.reshape(boundedXReal, [self.batchSize, 1, self.n_input])
+        boundedXReals = tf.tile(boundedXRealExp, [1, self.n_memories, 1])
+
+        boundedXImagExp = tf.reshape(boundedXImag, [self.batchSize, 1, self.n_input])
+        boundedXImags = tf.tile(boundedXImagExp, [1, self.n_memories, 1])
+
+        memoriesReal, memoriesImag = memories
+        memoriesReal = memoriesReal + tf.mul(boundedXReals, writing_softmax_exp)
+        memoriesImag = memoriesImag + tf.mul(boundedXImags, writing_softmax_exp)
+        return hstate, (memoriesReal, memoriesImag)
 
     def get_new_state(self, n_batch):
         return self.rnn_layer.get_new_state(n_batch)
