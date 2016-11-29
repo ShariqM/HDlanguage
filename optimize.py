@@ -5,47 +5,13 @@ from network import Network
 import pdb
 from helper import complexMultiply
 
-def zeros(shape):
-    return np.zeros(shape, dtype=np.float32)
-
-def getBatch(data, dataHD, invBindings, targets, batchSize):
-    batchX = zeros((batchSize, data.shape[1], data.shape[2]))
-
-
-    dataHDReal, dataHDImag = dataHD
-    batchXRealHD = zeros((batchSize, dataHD[0].shape[1], dataHD[0].shape[2]))
-    batchXImagHD = zeros((batchSize, dataHD[0].shape[1], dataHD[0].shape[2]))
-
-    invBindingsReal, invBindingsImag = invBindings
-    batchIBReal = zeros((batchSize, invBindingsReal.shape[1], invBindingsReal.shape[2]))
-    batchIBImag = zeros((batchSize, invBindingsReal.shape[1], invBindingsReal.shape[2]))
-
-    targetsReal, targetsImag = targets
-    batchTgtReal = zeros((batchSize, targetsReal.shape[1], targetsReal.shape[2]))
-    batchTgtImag = zeros((batchSize, targetsReal.shape[1], targetsReal.shape[2]))
-
-    for i in range(batchSize):
-        idx = np.random.randint(data.shape[0])
-
-        batchX[i,:,:] = inputData[idx,:,:]
-        batchXRealHD[i,:,:] = dataHDReal[idx,:,:]
-        batchXImagHD[i,:,:] = dataHDImag[idx,:,:]
-
-        batchIBReal[i,:,:] = invBindingsReal[idx, :, :]
-        batchIBImag[i,:,:] = invBindingsImag[idx, :, :]
-
-        batchTgtReal[i,:,:] = targetsReal[idx, :, :]
-        batchTgtImag[i,:,:] = targetsImag[idx, :, :]
-
-    return batchX, batchXRealHD, batchXImagHD, batchIBReal, batchIBImag, \
-             batchTgtReal, batchTgtImag
-
 allData = np.load('data/textVectors.npz')
 inputData = allData['V']
 bindingsReal, bindingsImag = allData['BR'], allData['BI']
 hdInput = allData['HDVR'], allData['HDVI']
 invBindings = allData['iBR'], allData['iBI']
-targets = allData['TR'], allData['TI']
+allWordsReal, allWordsImag = allData['AWR'], allData['AWI']
+targets = allData['T']
 
 nSamples, nWords, nDim = inputData.shape
 nHDDim = hdInput[0].shape[2]
@@ -69,6 +35,15 @@ bindingsRealTF = tf.constant(bindingsReal.astype(np.float32))
 bindingsImagTF = tf.constant(bindingsImag.astype(np.float32))
 bindingsTF = (bindingsRealTF, bindingsImagTF)
 
+allWordsRealExp = np.reshape(allWordsReal, [1, totWords, nInput])
+allWordsReals   = np.tile(allWordsRealExp, [batchSize, 1, 1])
+allWordsImagExp = np.reshape(allWordsImag, [1, totWords, nInput]
+allWordsImags   = np.tile(wordMatrixImagExp, [batchSize, 1, 1])
+
+allWordsRealTF = tf.constant(allWordsReals.astype(np.float32))
+allWordsImagTF = tf.constant(allWordsImag.astype(np.float32))
+allWordsTF = (allWordsRealTF, allWordsImagTF)
+
 memoriesRealTF = tf.Variable(tf.zeros([batchSize, nMemories, nDim]))
 memoriesImagTF = tf.Variable(tf.zeros([batchSize, nMemories, nDim]))
 memoriesTF = (memoriesRealTF, memoriesImagTF)
@@ -87,9 +62,8 @@ invBindingRealTF = tf.placeholder("float", [batchSize, nQuestions, nHDInput])
 invBindingImagTF = tf.placeholder("float", [batchSize, nQuestions, nHDInput])
 invBindingTF = (invBindingRealTF, invBindingRealTF)
 
-targetRealTF = tf.placeholder("float", [batchSize, nQuestions, nHDInput])
-targetImagTF = tf.placeholder("float", [batchSize, nQuestions, nHDInput])
-targetTF = (targetRealTF, targetImagTF)
+totWords = targets.shape[2]
+targetsTF = tf.placeholder("float", [batchSize, nQuestions, totWords])
 
 def stepify(x, nInput, nSections):
     x = tf.transpose(x, [1, 0, 2])
@@ -115,11 +89,10 @@ def unroll(x, xHD, memories, hstate):
 
 memory = unroll(xTF, xHDTF, memoriesTF, hstateTF)
 
-def computeCost(invBinding, target, memory):
+def computeCost(invBinding, targets, memory):
     invBinding = (stepify(invBinding[0], nHDInput, nQuestions),
                   stepify(invBinding[1], nHDInput, nQuestions))
-    target     = (stepify(target[0], nHDInput, nQuestions),
-                  stepify(target[1], nHDInput, nQuestions))
+    targets    = stepify(targets, nHDInput, nQuestions)
 
     # Hmm?
     wordMatrixRealExp = tf.reshape(wordMatrixReal, [1, totWords, nInput]
@@ -130,7 +103,6 @@ def computeCost(invBinding, target, memory):
 
     invBindingReal, invBindingImag = invBinding
     memoryReal, memoryImag = memory
-    targetReal, targetImag = target
     cost = tf.constant(0.0)
     for i in range(nQuestions):
         unboundReal, unboundImag = complexMultiply(invBindingReal[i],
@@ -154,11 +126,11 @@ def computeCost(invBinding, target, memory):
 
         diffNorm = tf.sqrt(tf.reduce_sum(combine, 2))
 
-        cost +== tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, diffNorm))
+        cost +== tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(diffNorm, targets[i])
 
     return cost
 
-cost = computeCost(invBindingTF, targetTF, memory)
+cost = computeCost(invBindingTF, targetsTF, memory)
 optimizer = tf.train.GradientDescentOptimizer(learningRate).minimize(cost)
 
 # Initializing the variables
@@ -177,9 +149,9 @@ with tf.Session() as sess:
         #TODO starting hidden state?
         sess.run(optimizer, feed_dict={xTF:batchX, xHDRealTF:batchXRealHD, xHDImagTF:batchXImagHD, \
                     invBindingRealTF:batchIBReal, invBindingImagTF:batchIBImag, \
-                    targetRealTF:batchTgtReal, targetImagTF:batchTgtImag})
+                    targetsTF:batchTargets)
 
-        if step % displayStep == 0:
+        if False and step % displayStep == 0:
             # Calculate batch loss
             loss = sess.run(cost, feed_dict={xTF:batchX, xHDRealTF:batchXRealHD, xHDImagTF:batchXImagHD, \
                         invBindingRealTF:batchIBReal, invBindingImagTF:batchIBImag, \
