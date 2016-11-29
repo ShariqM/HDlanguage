@@ -5,29 +5,29 @@ from helper import *
 import helper as h
 import pdb
 
-def buildVec(word, vecMap, hdVecMap, numDim, hdNumDim):
+def buildVec(word, vecMap, numDim, hdNumDim):
     if word not in vecMap:
         vec = np.random.randn(numDim)
         hdVec = h.generateHDvec(hdNumDim)
         vecMap[word] = (vec, hdVec)
     return
 
-def buildVecMaps(sentences, vecMap, hdVecMap, numDim, hdNumDim):
+def buildVecMaps(sentences, vecMap,numDim, hdNumDim):
     for (i, sentence) in enumerate(sentences):
         words = sentence.split(' ')
         for word in words:
-            buildVec(word)
+            buildVec(word, vecMap, numDim, hdNumDim)
 
     totWords = len(vecMap)
     allWordsReal = np.zeros((totWords, hdNumDim))
     allWordsImag = np.zeros((totWords, hdNumDim))
     wordMap = {}
 
-    for (i, word, hdVec) in hdVecMap.items():
-        allWordsReal[i,:] = hdVec.real
-        allWordsImag[i,:] = hdVec.imag
+    for (i, (word, vecs)) in enumerate(vecMap.items()):
+        allWordsReal[i,:] = vecs[1].real
+        allWordsImag[i,:] = vecs[1].imag
         wordMap[word] = i
-    return allWordsReal, allwordsImag, wordMap
+    return allWordsReal, allWordsImag, wordMap
 
 fname = 'data/textCorpus.txt'
 sentences = loadSentences(fname)
@@ -39,12 +39,11 @@ numDim = hdNumDim
 
 vecMap = {}
 vecs = np.zeros((numSamples, numWords, numDim))
-
-hdVecMap = {}
 hdVecsReal = np.zeros((numSamples, numWords, hdNumDim))
 hdVecsImag = np.zeros((numSamples, numWords, hdNumDim))
 
-allWordsReal, allwordsImag, wordMap = buildVecMaps(sentences)
+allWordsReal, allWordsImag, wordMap = \
+        buildVecMaps(sentences, vecMap, numDim, hdNumDim)
 
 subject = h.generateHDvec(hdNumDim)
 color   = h.generateHDvec(hdNumDim)
@@ -61,7 +60,7 @@ targets = np.zeros((numSamples, nQuestions, totWords))
 for (i, sentence) in enumerate(sentences):
     words = sentence.split(' ')
     for (j, word) in enumerate(words):
-        vec, hdVec = vecMap[word], hdVecMap[word]
+        vec, hdVec = vecMap[word]
         vecs[i, j, :] = vec
         hdVecsReal[i, j, :] = hdVec.real
         hdVecsImag[i, j, :] = hdVec.imag

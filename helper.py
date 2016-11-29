@@ -35,12 +35,12 @@ def getBatch(data, dataHD, invBindings, targets, batchSize):
     batchIBReal = zeros((batchSize, invBindingsReal.shape[1], invBindingsReal.shape[2]))
     batchIBImag = zeros((batchSize, invBindingsReal.shape[1], invBindingsReal.shape[2]))
 
-    batchTargets = zeros((batchSize, targets.shape[1], targets.shape[2])
+    batchTargets = zeros((batchSize, targets.shape[1], targets.shape[2]))
 
     for i in range(batchSize):
         idx = np.random.randint(data.shape[0])
 
-        batchX[i,:,:] = inputData[idx,:,:]
+        batchX[i,:,:] = data[idx,:,:]
         batchXRealHD[i,:,:] = dataHDReal[idx,:,:]
         batchXImagHD[i,:,:] = dataHDImag[idx,:,:]
 
@@ -59,8 +59,8 @@ def real_imag(mag, angle):
     return mag * np.exp(1j * angle)
 
 def generateHDvec(N):
-    hdVec =real_imag(1, np.random.uniform(0, 2*np.pi, N))
-    hdVec[np.random.choice(range(1024))
+    #hdVec =real_imag(1, np.random.uniform(0, 2*np.pi, N))
+    #hdVec[np.random.choice(range(1024)) XXX Zero out some??
     return real_imag(1, np.random.uniform(0, 2*np.pi, N))
 
 def inverseHD(x):

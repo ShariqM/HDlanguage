@@ -3,7 +3,7 @@ from tensorflow.python.ops import rnn, rnn_cell
 import numpy as np
 from network import Network
 import pdb
-from helper import complexMultiply
+from helper import complexMultiply, getBatch
 
 allData = np.load('data/textVectors.npz')
 inputData = allData['V']
@@ -17,11 +17,12 @@ nSamples, nWords, nDim = inputData.shape
 nHDDim = hdInput[0].shape[2]
 nQuestions = invBindings[0].shape[1]
 nMemories = nBindings = bindingsReal.shape[0]
+totWords = targets.shape[2]
 
 # Parameters
-learningRate = 1e-2
-trainingIters = 1000
-batchSize = 2
+learningRate = 1e-1
+trainingIters = 10000
+batchSize = 8
 
 # Network Parameters
 nInput = nDim
@@ -37,8 +38,8 @@ bindingsTF = (bindingsRealTF, bindingsImagTF)
 
 allWordsRealExp = np.reshape(allWordsReal, [1, totWords, nInput])
 allWordsReals   = np.tile(allWordsRealExp, [batchSize, 1, 1])
-allWordsImagExp = np.reshape(allWordsImag, [1, totWords, nInput]
-allWordsImags   = np.tile(wordMatrixImagExp, [batchSize, 1, 1])
+allWordsImagExp = np.reshape(allWordsImag, [1, totWords, nInput])
+allWordsImags   = np.tile(allWordsImagExp, [batchSize, 1, 1])
 
 allWordsRealTF = tf.constant(allWordsReals.astype(np.float32))
 allWordsImagTF = tf.constant(allWordsImag.astype(np.float32))
@@ -62,7 +63,6 @@ invBindingRealTF = tf.placeholder("float", [batchSize, nQuestions, nHDInput])
 invBindingImagTF = tf.placeholder("float", [batchSize, nQuestions, nHDInput])
 invBindingTF = (invBindingRealTF, invBindingRealTF)
 
-totWords = targets.shape[2]
 targetsTF = tf.placeholder("float", [batchSize, nQuestions, totWords])
 
 def stepify(x, nInput, nSections):
@@ -89,17 +89,10 @@ def unroll(x, xHD, memories, hstate):
 
 memory = unroll(xTF, xHDTF, memoriesTF, hstateTF)
 
-def computeCost(invBinding, targets, memory):
+def computeCost(invBinding, allWords, targets, memory):
     invBinding = (stepify(invBinding[0], nHDInput, nQuestions),
                   stepify(invBinding[1], nHDInput, nQuestions))
-    targets    = stepify(targets, nHDInput, nQuestions)
-
-    # Hmm?
-    wordMatrixRealExp = tf.reshape(wordMatrixReal, [1, totWords, nInput]
-    wordMatrixReals   = tf.tile(wordMatrixRealExp, [batchSize, 1, 1])
-
-    wordMatrixImagExp = tf.reshape(wordMatrixImag, [1, totWords, nInput]
-    wordMatrixImags   = tf.tile(wordMatrixImagExp, [batchSize, 1, 1])
+    targets    = stepify(targets, totWords, nQuestions)
 
     invBindingReal, invBindingImag = invBinding
     memoryReal, memoryImag = memory
@@ -112,25 +105,28 @@ def computeCost(invBinding, targets, memory):
         # wordMatrixReal - totWordZ x HDSize 100 * 1024
         # out = batchSize x totWords x HDSize
 
-        unboundRealExp = tf.reshape(unboundedReal, [batchSize, 1, nInput])
-        unboundReals   = tf.tile(unboundedRealExp, [1, totWords, 1])
+        unboundRealExp = tf.reshape(unboundReal, [batchSize, 1, nInput])
+        unboundReals   = tf.tile(unboundRealExp, [1, totWords, 1])
 
-        unboundImagExp = tf.reshape(unboundedImag, [batchSize, 1, nInput])
-        unboundImags   = tf.tile(unboundedImagExp, [1, totWords, 1])
+        unboundImagExp = tf.reshape(unboundImag, [batchSize, 1, nInput])
+        unboundImags   = tf.tile(unboundImagExp, [1, totWords, 1])
 
-        diffReals = tf.subtract(unboundReals, wordMatrixReals)
-        diffImags = tf.subtract(unboundImags, wordMatrixImags)
+        diffReals = tf.sub(unboundReals, allWordsReals)
+        diffImags = tf.sub(unboundImags, allWordsImags)
         # batchSize x totWords
 
-        combine = tf.add(tf.square(resultReal), tf.square(resultImag))
+        combine = tf.add(tf.square(diffReals), tf.square(diffImags))
 
-        diffNorm = tf.sqrt(tf.reduce_sum(combine, 2))
+        pred = diffNorm = tf.sqrt(tf.reduce_sum(combine, 2))
 
-        cost +== tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(diffNorm, targets[i])
+        cost += tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, targets[i]))
 
-    return cost
+        correct_pred = tf.equal(tf.argmax(pred, 1), tf.argmax(targets[i], 1))
+        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-cost = computeCost(invBindingTF, targetsTF, memory)
+    return cost, accuracy
+
+cost, accuracy = computeCost(invBindingTF, allWordsTF, targetsTF, memory)
 optimizer = tf.train.GradientDescentOptimizer(learningRate).minimize(cost)
 
 # Initializing the variables
@@ -143,21 +139,20 @@ with tf.Session() as sess:
     # Keep training until reach max iterations
     while step * batchSize < trainingIters:
         batchX, batchXRealHD, batchXImagHD, batchIBReal, batchIBImag,  \
-                batchTgtReal, batchTgtImag = \
+                batchTargets = \
                     getBatch(inputData, hdInput, invBindings, targets, batchSize)
 
         #TODO starting hidden state?
         sess.run(optimizer, feed_dict={xTF:batchX, xHDRealTF:batchXRealHD, xHDImagTF:batchXImagHD, \
                     invBindingRealTF:batchIBReal, invBindingImagTF:batchIBImag, \
-                    targetsTF:batchTargets)
+                    targetsTF:batchTargets})
 
-        if False and step % displayStep == 0:
+        if step % displayStep == 0:
             # Calculate batch loss
-            loss = sess.run(cost, feed_dict={xTF:batchX, xHDRealTF:batchXRealHD, xHDImagTF:batchXImagHD, \
+            loss, acc = sess.run([cost, accuracy], feed_dict={xTF:batchX, xHDRealTF:batchXRealHD, xHDImagTF:batchXImagHD, \
                         invBindingRealTF:batchIBReal, invBindingImagTF:batchIBImag, \
-                        targetRealTF:batchTgtReal, targetImagTF:batchTgtImag})
-            print ("Iter " + str(step*batchSize) + ", Minibatch Loss= " + \
-                  "{:.6f}".format(loss))
+                        targetsTF:batchTargets})
+            print ("Iter %d, Minibatch Loss=%.4f, Accuracy=%.3f" % (step*batchSize, loss, acc))
         step += 1
     print ("Optimization Finished!")
 
