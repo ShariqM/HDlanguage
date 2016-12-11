@@ -6,8 +6,10 @@ def loadSentences(fname):
     f = open(fname, 'r')
     x = f.readline()
     while x != '':
+        x = x[:-1] # Take off new line
         sentences.append(x)
         x = f.readline()
+
     return sentences
 
 def complexMultiply(AReal, AImag, BReal, BImag):
